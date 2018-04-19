@@ -1,0 +1,106 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@2.15">
+  <actions/>
+  <description>This job moves a backup file onto a restoration server at decrypts it there.&lt;!-- Managed by Jenkins Job Builder --&gt;</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty/>
+    <com.sonyericsson.rebuild.RebuildSettings plugin="rebuild@1.27">
+      <autoRebuild>false</autoRebuild>
+      <rebuildDisabled>false</rebuildDisabled>
+    </com.sonyericsson.rebuild.RebuildSettings>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.StringParameterDefinition>
+          <name>backupIp</name>
+          <description>The IP address of the backup server</description>
+          <defaultValue></defaultValue>
+        </hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>pathToFile</name>
+          <description>The path to the backup files</description>
+          <defaultValue></defaultValue>
+        </hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>decryptKey</name>
+          <description>The GPG key to decryt the backup</description>
+          <defaultValue></defaultValue>
+        </hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>restorationServerIp</name>
+          <description>The IP address of the restoration server)</description>
+          <defaultValue></defaultValue>
+        </hudson.model.StringParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+    <org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+      <triggers/>
+    </org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@2.41">
+    <script>node {
+  stage(&apos;Decrypt Backup&apos;) {
+
+    withCredentials([
+      sshUserPrivateKey(credentialsId: &apos;api-ssh-backup-server&apos;, keyFileVariable: &apos;backupServerKey&apos;),
+      sshUserPrivateKey(credentialsId: &apos;api-ssh-restoration-server&apos;, keyFileVariable: &apos;restorationServerKey&apos;),
+      string(credentialsId: &quot;api-gpg-secret-key-${decryptKey}&quot;, variable: &apos;gpgKey&apos;),
+      usernamePassword(credentialsId: &quot;api-gpg-uname-pwd-${decryptKey}&quot;, passwordVariable: &apos;gpgPasswd&apos;, usernameVariable: &apos;gpgUname&apos;)]) {
+          
+
+        // Initial SSH connection often fails first time try three times with a sleep in between
+        // Needs try catch to stop any fail causing pipeline to fail
+        def sshSuccessfull = false
+        def attempts = 2
+        while (attempts &gt; 0 &amp;&amp; !sshSuccessfull) {
+
+          println &quot;Importing private key&quot;
+          attempts--
+          try {
+                  sh &apos;&apos;&apos; ssh -o StrictHostKeyChecking=no -i $restorationServerKey ec2-user@$restorationServerIp &quot;echo -e $gpgKey | gpg --import&quot; &apos;&apos;&apos;
+                  sshSuccessfull = true
+
+          } catch(Exception e ) {
+              println(&quot;SSH attempt failed... trying again 30 seconds&quot;)
+              sleep 30
+          }
+
+        }
+        
+        // If not successfull after three tries fail the job
+        if (!sshSuccessfull) sh &apos;&apos;&apos; ssh -o StrictHostKeyChecking=no -i $restorationServerKey ec2-user@$restorationServerIp &quot;echo -e $gpgKey | gpg --import&quot; &apos;&apos;&apos;
+
+        println &quot;Creating &apos;decrypt&apos; script&quot;
+        sh &apos;&apos;&apos; ssh -i $restorationServerKey ec2-user@$restorationServerIp &quot;echo -e &apos;#!/bin/bash\necho \\$1 | gpg --batch --passphrase-fd 0 -r \\$2 --output \\$3 --decrypt \\$4&apos; &gt; decrypt.sh&quot; &apos;&apos;&apos;
+
+        sh &apos;&apos;&apos; ssh -i $restorationServerKey ec2-user@$restorationServerIp &quot;chmod +x decrypt.sh&quot; &apos;&apos;&apos;
+
+        println &quot;Retrieving latest backup file&quot;
+        backupFile = sh (
+          script: &apos;&apos;&apos;ssh -o StrictHostKeyChecking=no -i $backupServerKey ec2-user@$backupIp &quot;(cd $pathToFile &amp;&amp; find . -type f -print0 | xargs -0 ls -tr | tail -n 1)&quot; &apos;&apos;&apos;,
+          returnStdout:true
+        ).trim()
+        // Record the name and date modified of the file for results
+        backupFileDate = sh (
+          script: &quot;ssh -o StrictHostKeyChecking=no -i $backupServerKey ec2-user@$backupIp &apos;(cd $pathToFile &amp;&amp; date -r ${backupFile})&apos; &quot;,
+          returnStdout:true
+        ).trim()
+      
+        println(&quot;Testing latest backup file: ${backupFile}, last modifired ${backupFileDate}&quot;)
+        env.BackupFile = &quot;${backupFile}&quot;
+        env.BackupFileDate = &quot;${backupFileDate}&quot;
+
+        pathToFile = pathToFile + &apos;/&apos;
+
+        println &quot;Copying backup to test restoration server&quot;
+        sh &quot; ssh -o StrictHostKeyChecking=no -i $backupServerKey ec2-user@$backupIp &apos;scp -o StrictHostKeyChecking=no -i ~/.ssh/restoration-server.pem $pathToFile${backupFile} ec2-user@$restorationServerIp:backup.json.gpg&apos; &quot;
+
+        println &quot;Decrypting backup file&quot;
+        sh &apos;&apos;&apos; ssh -i $restorationServerKey ec2-user@$restorationServerIp &quot;./decrypt.sh $gpgPasswd $gpgUname &apos;backup.json&apos; &apos;backup.json.gpg&apos;&quot; &apos;&apos;&apos;
+    }
+  }
+}</script>
+    <sandbox>false</sandbox>
+  </definition>
+  <disabled>false</disabled>
+</flow-definition>

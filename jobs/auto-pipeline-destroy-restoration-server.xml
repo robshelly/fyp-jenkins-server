@@ -1,0 +1,39 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@2.15">
+  <actions/>
+  <description>This pipeline destroys a restoration server after a test restoration&lt;!-- Managed by Jenkins Job Builder --&gt;</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.StringParameterDefinition>
+          <name>instanceName</name>
+          <description>A uniquely identifiable name for the instance </description>
+          <defaultValue></defaultValue>
+        </hudson.model.StringParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+    <org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty/>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@2.41">
+    <script>node {
+  stage(&apos;Destroy Server&apos;) {        
+
+    def instanceId
+    withCredentials([[$class: &apos;AmazonWebServicesCredentialsBinding&apos;, accessKeyVariable: &apos;KEY_ID&apos;, credentialsId: &apos;api-aws-jenkins&apos;, secretKeyVariable: &apos;SECRET_KEY&apos;]]) {
+
+      instanceId = sh (
+        script: &apos;&apos;&apos;AWS_ACCESS_KEY_ID=$KEY_ID AWS_SECRET_ACCESS_KEY=$SECRET_KEY aws ec2 --region eu-west-1 describe-instances --filters &quot;Name=tag-value,Values=&quot;$instanceName | grep InstanceId | awk -F&apos;&quot;&apos; &apos;{print $4}&apos; &apos;&apos;&apos;,
+        returnStdout:true
+      ).trim()
+
+      println &quot;Instance ID: ${instanceId}&quot;
+      
+      sh &quot;AWS_ACCESS_KEY_ID=$KEY_ID AWS_SECRET_ACCESS_KEY=$SECRET_KEY aws ec2 terminate-instances --region eu-west-1 --instance-ids $instanceId &quot;
+    }
+  }
+}</script>
+    <sandbox>false</sandbox>
+  </definition>
+  <disabled>false</disabled>
+</flow-definition>

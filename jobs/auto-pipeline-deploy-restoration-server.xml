@@ -1,0 +1,57 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@2.15">
+  <actions/>
+  <description>This pipeline starts an instance in AWS with the correct DBMS installed&lt;!-- Managed by Jenkins Job Builder --&gt;</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.StringParameterDefinition>
+          <name>instanceName</name>
+          <description>A uniquely identifiable name for the instance </description>
+          <defaultValue></defaultValue>
+        </hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>dataType</name>
+          <description>The data type of the backup e.g. json or mysql</description>
+          <defaultValue></defaultValue>
+        </hudson.model.StringParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+    <org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty/>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@2.41">
+    <script>node {
+  stage(&apos;Deploy Restoration&apos;) {
+    
+    switch(dataType) {
+      case &apos;json&apos;:
+        serverAmi = &apos;ami-10334569&apos;
+        break;
+      case &apos;mysql&apos;:
+        serverAmi = &apos;demo only&apos;
+        break;
+      default:
+        // default to json
+        serverAmi = &apos;ami-10334569&apos;
+        break;
+    }
+
+    withCredentials([[$class: &apos;AmazonWebServicesCredentialsBinding&apos;, accessKeyVariable: &apos;KEY_ID&apos;, credentialsId: &apos;api-aws-jenkins&apos;, secretKeyVariable: &apos;SECRET_KEY&apos;]]) {
+
+      println &quot;AMI: ${serverAmi}&quot;
+
+      
+      println &quot;Creating server&quot;
+      sh &quot; AWS_ACCESS_KEY_ID=$KEY_ID AWS_SECRET_ACCESS_KEY=$SECRET_KEY aws ec2 --region eu-west-1 run-instances --image-id $serverAmi --count 1 --instance-type t2.micro --key-name restoration-server --security-groups httpssh --tag-specifications &apos;ResourceType=instance,Tags=[{Key=Name,Value=&apos;$instanceName&apos;}]&apos; &quot;
+
+      println &quot;Server created... waiting to boot&quot;
+
+      sh &apos;&apos;&apos; AWS_ACCESS_KEY_ID=$KEY_ID AWS_SECRET_ACCESS_KEY=$SECRET_KEY aws ec2 wait --region eu-west-1 instance-running --filters &quot;Name=tag-value,Values=&quot;$instanceName &apos;&apos;&apos;
+    }
+  }
+}</script>
+    <sandbox>false</sandbox>
+  </definition>
+  <disabled>false</disabled>
+</flow-definition>

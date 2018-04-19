@@ -1,0 +1,38 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@2.15">
+  <actions/>
+  <description>This job imports a backup in MongoDB and performs a read of the DB&lt;!-- Managed by Jenkins Job Builder --&gt;</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.StringParameterDefinition>
+          <name>restorationServerIp</name>
+          <description>The IP address of the restoration server)</description>
+          <defaultValue></defaultValue>
+        </hudson.model.StringParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+    <org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty/>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@2.41">
+    <script>node {
+  stage(&apos;Decrypt Backup&apos;) {
+
+    withCredentials([
+      sshUserPrivateKey(credentialsId: &apos;api-ssh-restoration-server&apos;, keyFileVariable: &apos;restorationServerKey&apos;)]) {
+
+        print &quot;Importing backup into MongoDB&quot;
+        sh &apos;&apos;&apos; ssh -i $restorationServerKey ec2-user@$restorationServerIp &quot;/usr/bin/mongoimport --db test --collection restaurants --drop --file backup.json&quot; &apos;&apos;&apos;
+
+        print &quot;Verify Restore&quot;
+        sh &apos;&apos;&apos;export LC_ALL=C &amp;&amp; ssh -i $restorationServerKey ec2-user@$restorationServerIp &quot;/usr/bin/mongo --norc --eval &apos;db.getCollectionNames().forEach( function(col) {db[col].find().forEach(printjson) } )&apos; &gt; /dev/null &quot; &apos;&apos;&apos;
+
+      }
+  }
+}
+</script>
+    <sandbox>false</sandbox>
+  </definition>
+  <disabled>false</disabled>
+</flow-definition>
